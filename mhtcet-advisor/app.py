@@ -112,6 +112,9 @@ st.markdown("""
 #MainMenu,footer,header{visibility:hidden}
 .stButton>button[kind="primary"]{background:var(--accent2)!important;border:none!important;
                                   border-radius:8px!important;font-weight:700!important}
+.block-container{padding-top:1.2rem!important;max-width:100%!important}
+[data-testid="stAppViewBlockContainer"]{max-width:100%!important;padding:1rem 2rem!important}
+.page-header{width:100%!important}
 </style>
 """, unsafe_allow_html=True)
 
@@ -247,6 +250,8 @@ if results_ready or st.session_state.sidebar_open:
         if yrs: st.caption(f"{', '.join(str(y) for y in yrs)}")
 else:
     rerun_btn = False
+    # sidebar vars undefined when sidebar hidden — set safe defaults
+    sb_pct=sb_cat=sb_gen=sb_dist=sb_hu=sb_sq=sb_br=sb_bpri=sb_near=sb_types=sb_rnd=sb_tadj=sb_maxp=None
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -741,9 +746,9 @@ else:
                             x=list(hpivot.columns),
                             y=list(hpivot.index),
                             colorscale="RdYlGn",zmin=0,zmax=100,
-                            text=[[f"{v:.0f}%" if not pd.isna(v) else "—"
+                            text=[[f"{v:.0f}" if not pd.isna(v) else "—"
                                    for v in row] for row in hpivot.values],
-                            texttemplate="%{text}",
+                            texttemplate="%{text}%",
                             # customdata carries full college+branch name per row
                             customdata=[[full_names[i]]*len(hpivot.columns)
                                         for i in range(len(hpivot))],
@@ -840,17 +845,27 @@ else:
                 )
 
                 if a=="FLOAT" and adv.get('top_options'):
-                    st.markdown("**Better options in next round:**")
+                    st.markdown("**All better options in next round:**")
+                    ff_rows = []
                     for opt in adv['top_options']:
                         lbl2 = classify(opt['probability'])['label']
-                        st.markdown(
-                            f"- **{opt['college_name']}** / {opt['course_name']} — "
-                            f"{opt['probability']:.0f}% {bdg(lbl2)}",
-                            unsafe_allow_html=True)
+                        ff_rows.append({
+                            'College': opt['college_name'],
+                            'Branch': opt['course_name'],
+                            'Probability': f"{opt['probability']:.0f}%",
+                            'Class': f"{BE.get(lbl2,'')} {lbl2}",
+                        })
+                    if ff_rows:
+                        st.dataframe(pd.DataFrame(ff_rows),
+                                     use_container_width=True,
+                                     hide_index=True, height=min(400, 40+len(ff_rows)*36))
                 if a=="SLIDE" and adv.get('slide_options'):
                     st.markdown("**Better branches at same college:**")
-                    for opt in adv['slide_options']:
-                        st.markdown(f"- **{opt['course_name']}** — {opt['probability']:.0f}%")
+                    sl_rows = [{'Branch': opt['course_name'],
+                                'Probability': f"{opt['probability']:.0f}%"}
+                               for opt in adv['slide_options']]
+                    st.dataframe(pd.DataFrame(sl_rows),
+                                 use_container_width=True, hide_index=True)
             else:
                 st.warning("No data for this allocation.")
 
@@ -930,17 +945,25 @@ else:
 
                 if pivot_rows:
                     pivot_df = pd.DataFrame(pivot_rows).set_index("Category")
-                    # Colour-code the dataframe
-                    st.dataframe(
-                        pivot_df.style.background_gradient(
-                            cmap='RdYlGn_r', axis=None,
-                            subset=[c for c in pivot_df.columns]
-                        ).format("{:.2f}", na_rep="—"),
-                        use_container_width=True,
-                        height=min(600, 60 + len(pivot_df)*36),
+                    import math as _math
+                    z_vals  = [[None if (v is None or (isinstance(v,float) and _math.isnan(v))) else v
+                               for v in row] for row in pivot_df.values.tolist()]
+                    txt_vals = [[f"{v:.2f}" if v is not None else '—' for v in row] for row in z_vals]
+                    fig_cp = go.Figure(go.Heatmap(
+                        z=z_vals, x=list(pivot_df.columns), y=list(pivot_df.index),
+                        colorscale='RdYlGn_r',
+                        text=txt_vals, texttemplate='%{text}', textfont=dict(size=10),
+                        hovertemplate='<b>%{y}</b><br>%{x}<br>Closing Percentile: %{z:.2f}<extra></extra>',
+                        colorbar=dict(title='Cutoff %'),
+                    ))
+                    fig_cp.update_layout(
+                        height=max(300, len(pivot_df)*34+80),
+                        margin=dict(t=30,b=10,l=20,r=60),
+                        xaxis=dict(side='top'),
+                        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                     )
-                    st.caption("Values show closing percentile (lower = easier to get). "
-                               "Green = lower cutoff. Red = higher cutoff.")
+                    st.plotly_chart(fig_cp, use_container_width=True)
+                    st.caption('Lower percentile = easier to get (green). Higher = harder (red).')
 
                     # Trend chart for selected categories
                     st.markdown("**Closing Percentile Trend — Round 1 across Years**")
