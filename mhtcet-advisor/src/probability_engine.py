@@ -466,7 +466,7 @@ def float_freeze_advice(
             "advice": "FLOAT",
             "reason": f"{' | '.join(float_reasons)}. {important_note}",
             "factors": float_reasons,
-            "top_options": uniq[:4],
+            "top_options": uniq,  # all options, not just top N
         }
 
     # FREEZE
